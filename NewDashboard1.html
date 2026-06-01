@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Empresarial - CTI</title>
+    
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <style>
+        body { background-color: #f2f2f2; padding: 20px; font-family: Arial, sans-serif; margin: 0; }
+        .flex-container { display: flex; flex-wrap: wrap; }
+        .kpi-card { background-color: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0px 2px 6px rgba(0,0,0,0.1); flex: 1; margin: 10px; border-top: 5px solid #28a745; min-width: 220px; }
+        .kpi-card h3 { margin: 0 0 10px 0; font-size: 16px; color: #555; }
+        .kpi-card h1 { margin: 0; font-size: 24px; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chart-card { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0px 2px 6px rgba(0,0,0,0.1); margin: 10px; flex: 1; min-width: 350px; }
+        .chart-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #003366; }
+        .especialista-card { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0px 2px 6px rgba(0,0,0,0.1); margin: 10px; flex: 1; min-width: 460px; }
+        .legenda-box { margin-bottom: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 8px; font-size: 13px; color: #444; }
+        .operador-row { margin-bottom: 22px; padding-bottom: 10px; border-bottom: 1px solid #eeeeee; }
+        .progress-bar-bg { width: 100%; height: 13px; background-color: #e6e6e6; border-radius: 20px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; border-radius: 20px; transition: 0.4s; }
+        #loading { font-size: 20px; text-align: center; margin-top: 50px; color: #003366; font-weight: bold; }
+        #dashboard-content { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="loading">Carregando dados do arquivo Result_28.xlsx...</div>
+
+    <div id="dashboard-content">
+        <div style="background-color: #003366; color: white; padding: 20px; border-radius: 10px; font-size: 28px; font-weight: bold; text-align: center; margin-bottom: 20px;">
+            Dashboard Empresarial - CTI
+        </div>
+
+        <div id="periodo-tag" style="background: linear-gradient(to right, #003366, #0055aa); padding: 12px; border-radius: 10px; margin-bottom: 20px; text-align: center; color: white; font-weight: bold; font-size: 18px; box-shadow: 0px 2px 6px rgba(0,0,0,0.2);">
+            Processando período...
+        </div>
+
+        <div class="flex-container">
+            <div class="kpi-card"><h3>🎫 Total Tickets</h3><h1 id="kpi-tickets">-</h1></div>
+            <div class="kpi-card"><h3>⏱ Tempo Médio</h3><h1 id="kpi-tempo">-</h1></div>
+            <div class="kpi-card"><h3>⚠ Problema CTI</h3><h1 id="kpi-problema">-</h1></div>
+            <div class="kpi-card"><h3>🛠 Serviços</h3><h1 id="kpi-servicos">-</h1></div>
+            <div class="kpi-card"><h3>📌 Ticket Mais Comum</h3><h1 id="kpi-comum" style="font-size: 18px;">-</h1></div>
+        </div>
+
+        <div class="flex-container">
+            <div class="chart-card"><div class="chart-title">Problema Nosso x Não Nosso</div><div id="fig_problema"></div></div>
+            <div class="chart-card"><div class="chart-title">Tipos de Ticket</div><div id="fig_categoria"></div></div>
+            <div class="chart-card"><div class="chart-title">Tempo Médio Mensal</div><div id="fig_tempo_mensal"></div></div>
+        </div>
+
+        <div class="flex-container">
+            <div class="chart-card"><div class="chart-title">Tempo Médio por Meio</div><div id="fig_tempo_meio"></div></div>
+            <div class="chart-card"><div class="chart-title">Top 10 Serviços</div><div id="fig_servicos"></div></div>
+            <div class="chart-card"><div class="chart-title">SLA / Tempo por Classificação</div><div id="fig_classificacao"></div></div>
+        </div>
+
+        <div class="flex-container" id="painel-especialistas"></div>
+    </div>
+
+    <script>
+        const PRIMARY = '#003366';
+        const SECONDARY = '#28a745';
+        const config = {responsive: true, displayModeBar: false};
+
+        // Carrega o arquivo Excel local automaticamente via Fetch API
+        fetch('Result_28.xlsx')
+            .then(res => {
+                if (!res.ok) throw new Error("Não foi possível encontrar o arquivo Result_28.xlsx na mesma pasta.");
+                return res.arrayBuffer();
+            })
+            .then(ab => {
+                const wb = XLSX.read(ab, {type: 'array', cellDates: true});
+                const sheetName = wb.SheetNames[0];
+                const df = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+                
+                processarDashboard(df);
+            })
+            .catch(err => {
+                document.getElementById('loading').innerHTML = `<span style="color:red;">Erro: ${err.message}<br><small>Certifique-se de que o arquivo "Result_28.xlsx" está na mesma pasta e que você está abrindo o HTML através de um servidor local (ex: extensão Live Server do VS Code) devido às travas de segurança dos navegadores para arquivos locais.</small></span>`;
+            });
+
+        function processarDashboard(df) {
+            // --- Conversão de tempos e tratamento de datas ---
+            df.forEach(row => {
+                // Simulação simplificada de conversão de tempo (caso venha no formato string ou float)
+                row.duracao_minutos = parseTempo(row.duracao_minutos_individual);
+                row.duracao_minutos_total = parseTempo(row.duracao_minutos_total_por_ticket);
+                row.data_atualizacao = row.data_atualizacao ? new Date(row.data_atualizacao) : null;
+            });
+
+            // Filtrar datas válidas
+            const df_datas = df.filter(row => row.data_atualizacao && !isNaN(row.data_atualizacao.getTime()));
+            const datas = df_datas.map(row => row.data_atualizacao);
+            
+            const minDate = new Date(Math.min(...datas));
+            const maxDate = new Date(Math.max(...datas));
+            const diasAnalisados = Math.round((maxDate - minDate) / (1000 * 60 * 60 * 24));
+
+            document.getElementById('periodo-tag').innerText = `Dados analisados de ${formatarData(minDate)} até ${formatarData(maxDate)} | ${diasAnalisados} dias analisados`;
+
+            // --- Cálculos de KPIs ---
+            const totalTickets = new Set(df.map(row => row.id_ticket)).size;
+            
+            const temposTotais = df.map(row => row.duracao_minutos_total).filter(t => !isNaN(t));
+            const tempoMedio = temposTotais.reduce((a, b) => a + b, 0) / temposTotais.length;
+
+            const problemasCTI_Filtro = df.filter(row => String(row.problema_nosso).toLowerCase().includes('sim'));
+            const problemaCtiPct = (problemasCTI_Filtro.length / df.length) * 100;
+
+            const totalServicos = new Set(df.map(row => row.servico).filter(Boolean)).size;
+
+            // Ticket mais comum (Moda da categoria)
+            const contagemCategorias = contarFrequencia(df, 'categoria');
+            const ticketMaisComum = Object.keys(contagemCategorias).reduce((a, b) => contagemCategorias[a] > contagemCategorias[b] ? a : b, "-");
+
+            // Atualizar os cards de KPI na tela
+            document.getElementById('kpi-tickets').innerText = totalTickets.toLocaleString();
+            document.getElementById('kpi-tempo').innerText = `${tempoMedio.toFixed(2)} min`;
+            document.getElementById('kpi-problema').innerText = `${problemaCtiPct.toFixed(2)}%`;
+            document.getElementById('kpi-servicos').innerText = totalServicos;
+            document.getElementById('kpi-comum').innerText = ticketMaisComum;
+
+            // --- Gerar os Gráficos ---
+            
+            // 1. Pizza - Problema Nosso
+            const contagemProblema = contarFrequencia(df, 'problema_nosso');
+            Plotly.newPlot('fig_problema', [{
+                values: Object.values(contagemProblema),
+                labels: Object.keys(contagemProblema),
+                type: 'pie',
+                hole: 0.5,
+                marker: { colors: ['#003366', '#28a745', '#ff9900'] }
+            }], { margin: {l:10, r:10, t:30, b:10}, height: 300 }, config);
+
+            // 2. Barra Horizontal - Categorias
+            const categoriasOrdenadas = Object.entries(contagemCategorias).sort((a,b) => a[1] - b[1]);
+            Plotly.newPlot('fig_categoria', [{
+                x: mapInvertido(categoriasOrdenadas, 1),
+                y: mapInvertido(categoriasOrdenadas, 0),
+                type: 'bar', orientation: 'h', marker: { color: PRIMARY },
+                text: mapInvertido(categoriasOrdenadas, 1), textposition: 'auto'
+            }], { xaxis: {title: 'Quantidade'}, yaxis: {type: 'category'}, height: 300, margin: {t:20, b:40, l:100} }, config);
+
+            // 3. Linha - Média Mensal
+            df.forEach(row => {
+                if(row.data_atualizacao) {
+                    row.mes = `${row.data_atualizacao.getFullYear()}-${String(row.data_atualizacao.getMonth()+1).padStart(2, '0')}`;
+                }
+            });
+            const tempoMensalAgrupado = agruparPorMedia(df, 'mes', 'duracao_minutos');
+            Plotly.newPlot('fig_tempo_mensal', [{
+                x: Object.keys(tempoMensalAgrupado).sort(),
+                y: Object.keys(tempoMensalAgrupado).sort().map(m => tempoMensalAgrupado[m]),
+                type: 'scatter', mode: 'lines+markers', line: {color: PRIMARY}, marker: {color: SECONDARY, size: 8}
+            }], { xaxis: {title: 'Mês'}, yaxis: {title: 'Tempo Médio (Min)'}, height: 300, margin: {t:20, b:40} }, config);
+
+            // 4. Barra Vertical - Tempo por Meio
+            const tempoPorMeio = agruparPorMedia(df, 'meio', 'duracao_minutos');
+            const meiosOrdenados = Object.entries(tempoPorMeio).sort((a,b) => b[1] - a[1]);
+            Plotly.newPlot('fig_tempo_meio', [{
+                x: meiosOrdenados.map(i => i[0]),
+                y: meiosOrdenados.map(i => i[1]),
+                type: 'bar', marker: { color: SECONDARY },
+                text: meiosOrdenados.map(i => i[1].toFixed(2)), textposition: 'auto'
+            }], { xaxis: {title: 'Meio'}, yaxis: {title: 'Tempo Médio (Min)'}, height: 300, margin: {t:20, b:40} }, config);
+
+            // 5. Barra Horizontal - Top 10 Serviços
+            const contagemServicos = contarFrequencia(df, 'servico');
+            const topServicos = Object.entries(contagemServicos).sort((a,b) => b[1] - a[1]).slice(0, 10).reverse();
+            Plotly.newPlot('fig_servicos', [{
+                x: topServicos.map(i => i[1]),
+                y: topServicos.map(i => i[0]),
+                type: 'bar', orientation: 'h', marker: { color: PRIMARY },
+                text: topServicos.map(i => i[1]), textposition: 'auto'
+            }], { xaxis: {title: 'Quantidade'}, yaxis: {type: 'category'}, height: 300, margin: {t:20, b:40, l:120} }, config);
+
+            // 6. Boxplot - SLA Classificação
+            const classesUnicas = [...new Set(df.map(row => row.classificacao).filter(Boolean))];
+            const dataBox = classesUnicas.map(cls => {
+                return {
+                    y: df.filter(row => row.classificacao === cls).map(row => row.duracao_minutos),
+                    type: 'box', name: cls
+                };
+            });
+            Plotly.newPlot('fig_classificacao', dataBox, { yaxis: {title: 'Tempo (Min)'}, showlegend: false, height: 300, margin: {t:20, b:40} }, config);
+
+            // --- Matriz de Especialistas Dinâmica ---
+            const top12ServicosLista = Object.entries(contagemServicos).sort((a,b) => b[1] - a[1]).slice(0, 12).map(i => i[0]);
+            gerarPainelEspecialistas(df, top12ServicosLista);
+
+            // Exibir o conteúdo final e ocultar o loading
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('dashboard-content').style.display = 'block';
+        }
+
+        // --- Funções Auxiliares de Apoio ---
+        function parseTempo(valor) {
+            if (!valor) return 0;
+            if (typeof valor === 'number') return valor; // Se já vier em minutos (float)
+            if (String(valor).includes(':')) { // Formato HH:MM:SS ou similar
+                const partes = String(valor).split(':');
+                return (parseFloat(partes[0]) * 60) + parseFloat(partes[1]) + (parseFloat(partes[2] || 0) / 60);
+            }
+            return parseFloat(valor) || 0;
+        }
+
+        function formatarData(d) {
+            return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+        }
+
+        function contarFrequencia(arr, coluna) {
+            const contagem = {};
+            arr.forEach(row => {
+                if (row[coluna]) contagem[row[coluna]] = (contagem[row[coluna]] || 0) + 1;
+            });
+            return contagem;
+        }
+
+        function agruparPorMedia(arr, colChave, colValor) {
+            const somas = {}, contagens = {}, medias = {};
+            arr.forEach(row => {
+                const chave = row[colChave];
+                const valor = row[colValor];
+                if(chave && !isNaN(valor)) {
+                    somas[chave] = (somas[chave] || 0) + valor;
+                    contagens[chave] = (contagens[chave] || 0) + 1;
+                }
+            });
+            for(let c in somas) { medias[c] = somas[c] / contagens[c]; }
+            return medias;
+        }
+
+        function mapInvertido(arr2D, index) { return arr2D.map(item => item[index]); }
+
+        function nivelTecnico(qtd) {
+            if (qtd >= 1000) return 'Especialista';
+            if (qtd >= 600) return 'Sênior';
+            if (qtd >= 250) return 'Pleno';
+            return 'Júnior';
+        }
+
+        function definirEquipe(consultor, nivel) {
+            const lideres = { 'Janaina': 'Equipe Alpha', 'Márcio Takeshi': 'Equipe Omega' };
+            if (consultor in lideres) return lideres[consultor];
+            if (nivel === 'Especialista') return 'Equipe Estratégica';
+            if (nivel === 'Sênior') return 'Equipe Avançada';
+            if (nivel === 'Pleno') return 'Equipe Operacional';
+            return 'Equipe Formação';
+        }
+
+        function gerarPainelEspecialistas(df, servicosRelevantes) {
+            const container = document.getElementById('painel-especialistas');
+            container.innerHTML = "";
+
+            servicosRelevantes.forEach(servico => {
+                // Filtrar e agrupar dados por consultor para este serviço específico
+                const dadosServico = df.filter(row => row.servico === servico && row.consultor);
+                const agrupadoConsultor = {};
+
+                dadosServico.forEach(row => {
+                    if(!agrupadoConsultor[row.consultor]) {
+                        agrupadoConsultor[row.consultor] = { tickets: new Set(), tempoTotal: 0, qtdRegistros: 0 };
+                    }
+                    agrupadoConsultor[row.consultor].tickets.add(row.id_ticket);
+                    if(!isNaN(row.duracao_minutos)) {
+                        agrupadoConsultor[row.consultor].tempoTotal += row.duracao_minutos;
+                        agrupadoConsultor[row.consultor].qtdRegistros++;
+                    }
+                });
+
+                const equipeLista = Object.keys(agrupadoConsultor).map(c => {
+                    const t_resolvidos = agrupadoConsultor[c].tickets.size;
+                    const t_medio = agrupadoConsultor[c].qtdRegistros > 0 ? (agrupadoConsultor[c].tempoTotal / agrupadoConsultor[c].qtdRegistros) : 0;
+                    const nivel = nivelTecnico(t_resolvidos);
+                    return {
+                        consultor: c,
+                        tickets_resolvidos: t_resolvidos,
+                        tempo_medio: t_medio,
+                        nivel: nivel,
+                        equipe: definirEquipe(c, nivel)
+                    };
+                }).sort((a,b) => b.tickets_resolvidos - a.tickets_resolvidos);
+
+                if (equipeLista.length === 0) return;
+
+                let cardsOperadoresHTML = "";
+                equipeLista.forEach(row => {
+                    const largura = Math.min((row.tickets_resolvidos / 1200) * 100, 100);
+                    let cor = '#ff9900';
+                    if (row.nivel === 'Especialista') cor = '#003366';
+                    else if (row.nivel === 'Sênior') cor = '#0055aa';
+                    else if (row.nivel === 'Pleno') cor = '#28a745';
+
+                    cardsOperadoresHTML += `
+                    <div class="operador-row">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                            <div>
+                                <strong style="color: ${PRIMARY}; font-size: 16px;">${row.consultor}</strong>
+                                <div style="font-size: 12px; color: #777;">${row.equipe}</div>
+                            </div>
+                            <span style="color: ${cor}; font-weight: bold; font-size: 14px;">${row.nivel}</span>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" style="width: ${largura}%; background-color: ${cor};"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 6px; color: #666;">
+                            <span>${row.tickets_resolvidos} tickets</span>
+                            <span>${row.tempo_medio.toFixed(1)} min méd.</span>
+                        </div>
+                    </div>`;
+                });
+
+                container.innerHTML += `
+                <div class="especialista-card">
+                    <div class="chart-title">Equipe Recomendada - ${servico}</div>
+                    <div class="legenda-box">
+                        <div>🔵 Especialista → domina o serviço e resolve alto volume</div>
+                        <div>🟦 Sênior → experiência elevada e suporte avançado</div>
+                        <div>🟢 Pleno → operação estável e produtividade consistente</div>
+                        <div>🟠 Júnior → em desenvolvimento técnico</div>
+                    </div>
+                    ${cardsOperadoresHTML}
+                </div>`;
+            });
+        }
+    </script>
+</body>
+</html>
